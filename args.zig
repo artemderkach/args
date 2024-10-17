@@ -1,6 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
+
 const IteratorTest = struct {
     args: []const []const u8,
     index: usize = 0,
@@ -15,7 +19,7 @@ const IteratorTest = struct {
 
 const Iterator = if (builtin.is_test) IteratorTest else std.process.ArgIterator;
 
-const Command = struct {
+pub const Command = struct {
     name: []const u8,
     arguments: ?[][]const u8 = null,
     commands: ?[]Command = null,
@@ -30,12 +34,21 @@ const Type = union {
 };
 
 const Option = struct {
+    found: bool = false,
     long: []const u8,
     short: []const u8,
     value: Type,
 };
 
-pub fn parse(_: *Command, iter: *Iterator) void {
+pub fn parse(c: *Command) !void {
+    const allocator = std.heap.GeneralPurposeAllocator(.{});
+    var iter = try std.process.ArgIterator.initWithAllocator(allocator);
+    defer iter.deinit();
+
+    parseIter(c, iter);
+}
+
+pub fn parseIter(_: *Command, iter: *Iterator) void {
     while (iter.next()) |arg| {
         std.debug.print("==> arg: {s}, @TypeOf(arg): {any}\n", .{ arg, @TypeOf(arg) });
     }
@@ -48,22 +61,38 @@ pub fn parse(_: *Command, iter: *Iterator) void {
     // std.debug.print("hello! argument: {any}, command: {any}\n", .{ arguments, iter });
 }
 
-test "parse" {
-    // const name = "serial";
+fn hmm(c: []Command) []Command {
+    return c;
+}
 
+test "parse" {
+    {
+        const arguments = &.{ "main", "serial" };
+        var iter = IteratorTest{ .args = arguments };
+
+        var subcommands = [_]Command{.{ .name = "serial" }};
+        var c = Command{
+            .name = "main",
+            .commands = &subcommands,
+        };
+
+        parseIter(&c, &iter);
+
+        // try expect(c.found);
+    }
+
+    var commands = [_]Command{
+        Command{ .name = "dfd" },
+    };
     var c = Command{
         .name = "",
         // .arguments = null,
-        // .commands = null,
+        .commands = &commands,
         .options = &.{},
     };
 
     // var com = Command{ .name = "serial" };
     // _ = &com;
-    var commands: [1]Command = .{
-        Command{ .name = "dfd" },
-    };
-    c.commands = &commands;
 
     const arguments = &.{
         "main",
@@ -72,7 +101,7 @@ test "parse" {
     };
     var iter = IteratorTest{ .args = arguments };
 
-    parse(&c, &iter);
+    parseIter(&c, &iter);
 
     var s = [_]u4{ 1, 2, 3 };
     _ = &s;
