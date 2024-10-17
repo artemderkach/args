@@ -22,19 +22,25 @@ const Command = struct {
     options: ?[]Option = null,
 };
 
+const Type = union {
+    int: i64,
+    uint: u64,
+    float: f64,
+    string: []const u8,
+};
+
 const Option = struct {
     long: []const u8,
     short: []const u8,
-    type: type,
-    value: u8,
+    value: Type,
 };
 
-pub fn parse(c: *Command, iter: *Iterator) void {
+pub fn parse(_: *Command, iter: *Iterator) void {
     while (iter.next()) |arg| {
         std.debug.print("==> arg: {s}, @TypeOf(arg): {any}\n", .{ arg, @TypeOf(arg) });
     }
 
-    c.options.?[0].value = 1;
+    // c.options.?[0].value = 1;
 
     // for (arguments) |arg| {
     //     std.debug.print("==> {s}, {any}\n", .{ arg, @TypeOf(arg) });
@@ -44,28 +50,33 @@ pub fn parse(c: *Command, iter: *Iterator) void {
 
 test "parse" {
     // const name = "serial";
+
     var c = Command{
         .name = "",
         // .arguments = null,
         // .commands = null,
-        .options = &[_]Option{
-            Option{ .short = "-h", .long = "--help", .type = []const u8, .value = 1 },
-        },
+        .options = &.{},
     };
 
-    // c.commands = &[_]Command{
-    //     Command{ .name = "serial" },
-    // };
+    // var com = Command{ .name = "serial" };
+    // _ = &com;
+    var commands: [1]Command = .{
+        Command{ .name = "dfd" },
+    };
+    c.commands = &commands;
 
     const arguments = &.{
         "main",
         "lo",
         "!",
     };
-
     var iter = IteratorTest{ .args = arguments };
 
     parse(&c, &iter);
+
+    var s = [_]u4{ 1, 2, 3 };
+    _ = &s;
+    std.debug.print("+++> {}\n", .{@TypeOf(s)});
 
     // const allocator = std.testing.allocator;
     // var iter = try std.process.ArgIterator.initWithAllocator(allocator);
