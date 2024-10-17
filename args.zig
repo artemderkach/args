@@ -2,10 +2,14 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const IteratorTest = struct {
-    args: ?[]const []const u8,
+    args: []const []const u8,
+    index: usize = 0,
 
-    pub fn next(_: *IteratorTest) ?([:0]const u8) {
-        return null;
+    pub fn next(iter: *IteratorTest) ?[]const u8 {
+        if (iter.index >= iter.args.len) return null;
+        const arg = iter.args[iter.index];
+        iter.index += 1;
+        return arg;
     }
 };
 
@@ -14,45 +18,54 @@ const Iterator = if (builtin.is_test) IteratorTest else std.process.ArgIterator;
 const Command = struct {
     name: []const u8,
     arguments: ?[][]const u8 = null,
-    commands: ?[]const Command = null,
+    commands: ?[]Command = null,
     options: ?[]Option = null,
 };
 
 const Option = struct {
-    long: []u8,
-    short: []u8,
-    type: u8,
+    long: []const u8,
+    short: []const u8,
+    type: type,
+    value: u8,
 };
 
-pub fn parse(_: *Command, arguments: []const [:0]const u8, iter: Iterator) void {
-    for (arguments) |arg| {
-        std.debug.print("==> {s}, {any}\n", .{ arg, @TypeOf(arg) });
+pub fn parse(c: *Command, iter: *Iterator) void {
+    while (iter.next()) |arg| {
+        std.debug.print("==> arg: {s}, @TypeOf(arg): {any}\n", .{ arg, @TypeOf(arg) });
     }
-    std.debug.print("hello! argument: {any}, command: {any}\n", .{ arguments, iter });
+
+    c.options.?[0].value = 1;
+
+    // for (arguments) |arg| {
+    //     std.debug.print("==> {s}, {any}\n", .{ arg, @TypeOf(arg) });
+    // }
+    // std.debug.print("hello! argument: {any}, command: {any}\n", .{ arguments, iter });
 }
 
 test "parse" {
     // const name = "serial";
     var c = Command{
-        .name = "<root>",
+        .name = "",
         // .arguments = null,
         // .commands = null,
-        // .options = null,
+        .options = &[_]Option{
+            Option{ .short = "-h", .long = "--help", .type = []const u8, .value = 1 },
+        },
     };
 
-    c.commands = &[_]Command{
-        Command{ .name = "serial" },
-    };
+    // c.commands = &[_]Command{
+    //     Command{ .name = "serial" },
+    // };
 
     const arguments = &.{
-        "hel",
+        "main",
         "lo",
         "!",
     };
 
-    const iter = IteratorTest{ .args = null };
+    var iter = IteratorTest{ .args = arguments };
 
-    parse(&c, arguments, iter);
+    parse(&c, &iter);
 
     // const allocator = std.testing.allocator;
     // var iter = try std.process.ArgIterator.initWithAllocator(allocator);
