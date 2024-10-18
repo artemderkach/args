@@ -20,7 +20,7 @@ const IteratorTest = struct {
 const Iterator = if (builtin.is_test) IteratorTest else std.process.ArgIterator;
 
 pub const Command = struct {
-    name: []const u8,
+    name: ?[]const u8,
     arguments: ?[][]const u8 = null,
     commands: ?[]Command = null,
     options: ?[]Option = null,
@@ -34,10 +34,9 @@ const Type = union {
 };
 
 const Option = struct {
-    found: bool = false,
-    long: []const u8,
-    short: []const u8,
-    value: Type,
+    found: ?bool = false,
+    long: ?[]const u8 = null,
+    short: ?[]const u8 = null,
 };
 
 pub fn parse(c: *Command) !void {
@@ -48,10 +47,10 @@ pub fn parse(c: *Command) !void {
     parseIter(c, iter);
 }
 
-pub fn parseIter(_: *Command, iter: *Iterator) void {
-    while (iter.next()) |arg| {
-        std.debug.print("==> arg: {s}, @TypeOf(arg): {any}\n", .{ arg, @TypeOf(arg) });
-    }
+pub fn parseIter(_: *Command, _: *Iterator) void {
+    // while (iter.next()) |arg| {
+    //     std.debug.print("==> arg: {s}, @TypeOf(arg): {any}\n", .{ arg, @TypeOf(arg) });
+    // }
 
     // c.options.?[0].value = 1;
 
@@ -105,72 +104,71 @@ test "parse" {
 
     var s = [_]u4{ 1, 2, 3 };
     _ = &s;
-    std.debug.print("+++> {}\n", .{@TypeOf(s)});
+    // std.debug.print("+++> {}\n", .{@TypeOf(s)});
+}
 
-    // const allocator = std.testing.allocator;
-    // var iter = try std.process.ArgIterator.initWithAllocator(allocator);
-    // defer iter.deinit();
-    //
-    // while (iter.next()) |arg| {
-    //     std.debug.print("++> {s}, {any}\n", .{ arg, @TypeOf(arg) });
+// pub fn parse_struct(s: type) type {
+//     return s;
+// }
+
+const serial_com = struct {
+    commands: struct {} = .{},
+    options: struct {
+        port: Option = .{},
+    } = .{},
+};
+
+var config = struct {
+    commands: struct {
+        serial: struct {
+            commands: struct {} = .{},
+            options: struct {
+                port: Option = .{},
+            } = .{},
+        } = .{},
+    } = .{},
+    options: struct {
+        help: Option = .{ .long = "ff" },
+    } = .{},
+    t: u8 = 1,
+}{};
+
+// fn opt(o: anytype) opaque {
+//     return o;
+// }
+
+fn cmd(c: anytype) void {
+    std.debug.print("typeof: {}\n", .{@TypeOf(c)});
+
+    // std.debug.print("fields: {}\n", .{std.meta.fields(c)});
+    // inline for (c) |field| {
+    //     std.debug.print("filed: {}\n", .{@TypeOf(field)});
     // }
-    // std.debug.print("--> {any}, {}\n", .{ std.os.argv, @TypeOf(std.os.argv) });
+}
 
-    // const inp: [std.os.argv.len][:0]const u8 = undefined;
-    // std.debug.print("00000> {any}\n", .{@TypeOf(inp)});
+test "parse_struct" {
+    // std.debug.print("fields: {}\n", .{@typeInfo(config)});
 
-    // const a = [_:0]u8{ 'h', 'e', 'l', 'l' };
-    // std.debug.print("==> {s}, {any}\n", .{ a, @TypeOf(a) });
-    //
-    // const b = "hell";
-    // std.debug.print("==> {s}, {any}\n", .{ b, @TypeOf(b) });
-    //
-    // const c: []const u8 = "hell";
-    // std.debug.print("==> {s}, {any}\n", .{ c, @TypeOf(c) });
+    var val: u8 = 4;
+    _ = &val;
+    inline for (std.meta.fields(@TypeOf(config))) |field| {
+        if (std.mem.eql(u8, field.name, "t")) {
+            std.debug.print("field.name: {s}\n", .{field.name});
+            @field(config, field.name) = val;
+        }
+        std.debug.print("name: {s}, type: \n", .{field.name});
+        std.debug.print("fields: {}\n", .{field});
+    }
 
-    // const e: []const [:0]const u8 = &.{
-    //     "aaa",
-    //     "-h",
-    //     "--hello",
-    // };
-    // std.debug.print("--> {any}, {}\n", .{ std.os.argv, @TypeOf(std.os.argv) });
-    // std.debug.print("--> {any}, {}\n", .{ @TypeOf(e), @TypeOf(&e) });
-    // std.debug.print("--> {any}\n", .{@TypeOf(e[0..])});
-    //
-    // for (e) |arg| {
-    //     std.debug.print("==> {s}, {any}\n", .{ arg, @TypeOf(arg) });
-    // }
-    //
-    // parse(e, iter);
-    //
-    // const t = [_][:0]const u8{
-    //     [:0]u8{"some"},
-    // };
-    // for (t) |arg| {
-    //     std.debug.print("==> {s}, {any}\n", .{ arg, @TypeOf(arg) });
-    // }
-    //
+    // var opts = @field(config, "options");
+    // var help = @field(&opts, "help");
+    // _ = &help;
+    // std.debug.print("fields: {}\n", .{help});
+    // std.debug.print("fields: {}\n", .{@typeInfo(&opts)});
+    // std.debug.print("fields: {}\n", .{@typeInfo(&help)});
 
-    // parse(c);
-    // std.os.ar
-    //
-    // const str_literal = "hello";
-    // var str_literal_var = "hello";
-    // _ = &str_literal_var;
-    // str_literal_var[2] = 'h';
-    // const str_literal_ptr: []u8 = std.mem.sliceTo(&.{"hello?"}, 5);
+    // std.debug.print("fields: {}\n", .{@field(config, "options")});
+    // std.debug.print("fields: {}\n", .{std.meta.fields(config)});
 
-    // var str_var = [_]u8{ 'h', 'e', 'o' };
-    // _ = &str_var;
-    // var i: usize = 0;
-    // _ = &i;
-    // str_var[i..]
-
-    // std.debug.print("str_literal: {}\n", .{@TypeOf(str_literal)});
-    // std.debug.print("str_literal_var: {}\n", .{@TypeOf(str_literal_var)});
-    // std.debug.print("str_literal_type: {}\n", .{@TypeOf(str_literal_ptr)});
-    // std.debug.print("str_var: {}\n", .{@TypeOf(str_var)});
-    // std.debug.print("str_var_slice: {}\n", .{@TypeOf(str_var[i..])});
-
-    // std.debug.print("str_var_slice: {}\n", .{@TypeOf(std.os.argv)});
+    // cmd(&config);
 }
