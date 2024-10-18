@@ -119,17 +119,11 @@ const serial_com = struct {
 };
 
 var config = struct {
-    commands: struct {
-        serial: struct {
-            commands: struct {} = .{},
-            options: struct {
-                port: Option = .{},
-            } = .{},
-        } = .{},
+    serial: struct {
+        port: Option = .{},
     } = .{},
-    options: struct {
-        help: Option = .{ .long = "ff" },
-    } = .{},
+
+    help: Option = .{ .long = "ff" },
     t: u8 = 1,
 }{};
 
