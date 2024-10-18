@@ -5,6 +5,8 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
+const Iterator = if (builtin.is_test) IteratorTest else std.process.ArgIterator;
+
 const IteratorTest = struct {
     args: []const []const u8,
     index: usize = 0,
@@ -17,141 +19,85 @@ const IteratorTest = struct {
     }
 };
 
-const Iterator = if (builtin.is_test) IteratorTest else std.process.ArgIterator;
+pub fn Flag(comptime T: type) type {
+    return struct {
+        value: T = undefined,
+        long: ?[]const u8 = undefined,
+        short: ?u8 = undefined,
+    };
+}
 
-pub const Command = struct {
-    name: ?[]const u8,
-    arguments: ?[][]const u8 = null,
-    commands: ?[]Command = null,
-    options: ?[]Option = null,
-};
-
-const Type = union {
-    int: i64,
-    uint: u64,
-    float: f64,
-    string: []const u8,
-};
-
-const Option = struct {
-    found: ?bool = false,
-    long: ?[]const u8 = null,
-    short: ?[]const u8 = null,
-};
-
-pub fn parse(c: *Command) !void {
-    const allocator = std.heap.GeneralPurposeAllocator(.{});
-    var iter = try std.process.ArgIterator.initWithAllocator(allocator);
+// parse command line arguments into proivded config
+// should be used if you just whant it work
+// in case you need finer tuning, use parseIter
+pub fn parse(cfg: anytype) !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const a = gpa.allocator();
+    var iter = try std.process.ArgIterator.initWithAllocator(a);
     defer iter.deinit();
 
-    parseIter(c, iter);
+    parseIter(cfg, &iter);
 }
 
-pub fn parseIter(_: *Command, _: *Iterator) void {
-    // while (iter.next()) |arg| {
-    //     std.debug.print("==> arg: {s}, @TypeOf(arg): {any}\n", .{ arg, @TypeOf(arg) });
-    // }
-
-    // c.options.?[0].value = 1;
-
-    // for (arguments) |arg| {
-    //     std.debug.print("==> {s}, {any}\n", .{ arg, @TypeOf(arg) });
-    // }
-    // std.debug.print("hello! argument: {any}, command: {any}\n", .{ arguments, iter });
-}
-
-fn hmm(c: []Command) []Command {
-    return c;
+// parses command line arguments form provided iterator into provided config
+pub fn parseIter(_: anytype, iter: *Iterator) void {
+    while (iter.next()) |arg| {
+        std.debug.print("arg: {s}\n", .{arg});
+    }
 }
 
 test "parse" {
     {
-        const arguments = &.{ "main", "serial" };
+        // single boolean flag
+        const arguments = &.{ "main", "--trigger" };
         var iter = IteratorTest{ .args = arguments };
 
-        var subcommands = [_]Command{.{ .name = "serial" }};
-        var c = Command{
-            .name = "main",
-            .commands = &subcommands,
-        };
+        var cfg = struct {
+            trigger: Flag(bool) = .{ .long = "trigger" },
+        }{};
 
-        parseIter(&c, &iter);
+        parseIter(&cfg, &iter);
 
-        // try expect(c.found);
+        try expect(cfg.trigger.value);
     }
-
-    var commands = [_]Command{
-        Command{ .name = "dfd" },
-    };
-    var c = Command{
-        .name = "",
-        // .arguments = null,
-        .commands = &commands,
-        .options = &.{},
-    };
-
-    // var com = Command{ .name = "serial" };
-    // _ = &com;
-
-    const arguments = &.{
-        "main",
-        "lo",
-        "!",
-    };
-    var iter = IteratorTest{ .args = arguments };
-
-    parseIter(&c, &iter);
-
-    var s = [_]u4{ 1, 2, 3 };
-    _ = &s;
-    // std.debug.print("+++> {}\n", .{@TypeOf(s)});
 }
 
-// pub fn parse_struct(s: type) type {
-//     return s;
-// }
+const MyFn = fn () void;
 
-const serial_com = struct {
-    commands: struct {} = .{},
-    options: struct {
-        port: Option = .{},
-    } = .{},
-};
+fn myfn() void {
+    // std.debug.print("YEEEEE\n", .{});
+}
 
 var config = struct {
     serial: struct {
-        port: Option = .{},
+        // callback: fn () void,
     } = .{},
 
-    help: Option = .{ .long = "ff" },
-    t: u8 = 1,
+    help: Flag(u8) = .{ .long = "help" },
+    callback: *const fn () void = myfn,
+    t: usize = 1,
 }{};
-
-// fn opt(o: anytype) opaque {
-//     return o;
-// }
-
-fn cmd(c: anytype) void {
-    std.debug.print("typeof: {}\n", .{@TypeOf(c)});
-
-    // std.debug.print("fields: {}\n", .{std.meta.fields(c)});
-    // inline for (c) |field| {
-    //     std.debug.print("filed: {}\n", .{@TypeOf(field)});
-    // }
-}
 
 test "parse_struct" {
     // std.debug.print("fields: {}\n", .{@typeInfo(config)});
+    // config.help.value;
 
-    var val: u8 = 4;
-    _ = &val;
+    // var val: u8 = 4;
+    // _ = &val;
     inline for (std.meta.fields(@TypeOf(config))) |field| {
-        if (std.mem.eql(u8, field.name, "t")) {
-            std.debug.print("field.name: {s}\n", .{field.name});
-            @field(config, field.name) = val;
+        // std.debug.print("fields: {}\n", .{field});
+        // std.debug.print("field.name: {s}, field.type: {any}\n", .{ field.name, field.type });
+        // std.debug.print("field.type: {s}, type: \n", .{field.name});
+        // @field(config, field.name) = val;
+        if (comptime std.mem.eql(u8, field.name, "callback")) {
+            @field(config, field.name)();
         }
-        std.debug.print("name: {s}, type: \n", .{field.name});
-        std.debug.print("fields: {}\n", .{field});
+        if (comptime std.mem.eql(u8, field.name, "t")) {
+            // std.debug.print("====> {any}\n", .{@field(config, field.name)});
+            // @field(config, field.name) = 2;
+            // std.debug.print("field.name: {s}\n", .{field.name});
+            // std.debug.print("field.name: {s}\n", .{field.name});
+        }
     }
 
     // var opts = @field(config, "options");
