@@ -31,8 +31,8 @@ const FlagTypePrefix = "args.Flag";
 pub fn Flag(comptime T: type) type {
     return struct {
         value: T = undefined,
-        long: ?[]const u8 = undefined,
-        short: ?u8 = undefined,
+        long: []const u8 = undefined,
+        short: u8 = undefined,
     };
 }
 
@@ -67,13 +67,13 @@ pub fn parseIter(allocator: std.mem.Allocator, iter: *Iterator, config: anytype)
     while (pa.next()) |arg| {
         std.debug.print("arg: {any}, {s}\n", .{ arg.Type, arg.value });
         switch (arg.Type) {
-            .long, .short => {
+            .long => {
                 inline for (std.meta.fields(@TypeOf(config.*))) |field| {
-                    if (std.mem.eql(u8, field.name, arg.value) and
+                    const f = @field(config, field.name);
+
+                    if (std.mem.eql(u8, f.long, arg.value) and
                         std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix))
                     {
-                        const f = @field(config, field.name);
-                        std.debug.print("==========> {}\n", .{@TypeOf(f.value)});
                         switch (@TypeOf(f.value)) {
                             bool => {
                                 @field(config, field.name).value = true;
@@ -81,18 +81,26 @@ pub fn parseIter(allocator: std.mem.Allocator, iter: *Iterator, config: anytype)
                             else => {},
                         }
                     }
-                    std.debug.print("config field: {s}, {s}\n", .{ field.name, @typeName(field.type) });
                 }
-                // parseStruct(config, parsedArg.value);
+            },
+            .short => {
+                inline for (std.meta.fields(@TypeOf(config.*))) |field| {
+                    const f = @field(config, field.name);
 
-                std.debug.print("found flag\n", .{});
+                    if (f.short == arg.value[0] and
+                        std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix))
+                    {
+                        switch (@TypeOf(f.value)) {
+                            bool => {
+                                @field(config, field.name).value = true;
+                            },
+                            else => {},
+                        }
+                    }
+                }
             },
-            else => {
-                std.debug.print("found unknown argument\n", .{});
-            },
+            .arg => {},
         }
-
-        // std.debug.print("parsedArg: {any}, {s}\n", .{ pa.Type, pa.value });
     }
 }
 
@@ -108,7 +116,7 @@ test "parseIter" {
         try parseIter(allocator, &iter, &config);
     }
     {
-        // nothing to parse except main command
+        // parse only long flag
         var config = struct {
             trigger: Flag(bool) = .{ .long = "trigger" },
         }{};
@@ -119,6 +127,79 @@ test "parseIter" {
         try parseIter(allocator, &iter, &config);
 
         try expectEqual(true, config.trigger.value);
+    }
+    {
+        // parse only short flag
+        var config = struct {
+            trigger: Flag(bool) = .{ .short = 't' },
+        }{};
+
+        const arguments = &.{ "main", "-t" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqual(true, config.trigger.value);
+    }
+    {
+        // parse both short and long flags
+        var config = struct {
+            trigger: Flag(bool) = .{ .long = "trigger" },
+            debug: Flag(bool) = .{ .short = 'd' },
+        }{};
+
+        const arguments = &.{ "main", "-d", "--trigger" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqual(true, config.trigger.value);
+        try expectEqual(true, config.debug.value);
+    }
+    {
+        // parse both short and long flags
+        var config = struct {
+            trigger: Flag(bool) = .{ .long = "trigger", .short = 't' },
+            debug: Flag(bool) = .{ .long = "debug", .short = 'd' },
+        }{};
+
+        const arguments = &.{ "main", "-d", "--trigger" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqual(true, config.trigger.value);
+        try expectEqual(true, config.debug.value);
+    }
+    {
+        // some values not provided
+        var config = struct {
+            trigger: Flag(bool) = .{ .long = "trigger", .short = 't' },
+            debug: Flag(bool) = .{ .long = "debug", .short = 'd' },
+        }{};
+
+        const arguments = &.{ "main", "--debug", "wrong_value" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqual(false, config.trigger.value);
+        try expectEqual(true, config.debug.value);
+    }
+    {
+        // default values
+        var config = struct {
+            trigger: Flag(bool) = .{ .long = "trigger", .short = 't', .value = true },
+            debug: Flag(bool) = .{ .long = "debug", .short = 'd', .value = false },
+        }{};
+
+        const arguments = &.{"main"};
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqual(true, config.trigger.value);
+        try expectEqual(false, config.debug.value);
     }
 }
 
