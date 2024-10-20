@@ -81,14 +81,38 @@ pub fn parseIter(allocator: std.mem.Allocator, iter: *Iterator, config: anytype)
                     const f = @field(config, field.name);
 
                     if (comptime !std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix)) break :blk;
+                    if (!std.mem.eql(u8, f.long, arg.value)) break :blk;
 
-                    if (std.mem.eql(u8, f.long, arg.value)) {
-                        switch (@TypeOf(f.value)) {
-                            bool => {
-                                @field(config, field.name).value = true;
-                            },
-                            else => {},
-                        }
+                    switch (@TypeOf(f.value)) {
+                        bool, ?bool => {
+                            @field(config, field.name).value = true;
+                        },
+                        []const u8 => {
+                            if (pa.next()) |flag_value| {
+                                @field(config, field.name).value = flag_value.value;
+                            }
+                        },
+                        i8, u8, i16, u16, i32, u32, i64, u64, i128, u128 => {
+                            if (pa.next()) |flag_value| {
+                                @field(config, field.name).value = try std.fmt.parseInt(@TypeOf(f.value), flag_value.value, 0);
+                            }
+                        },
+                        ?i8, ?u8, ?i16, ?u16, ?i32, ?u32, ?i64, ?u64, ?i128, ?u128 => {
+                            if (pa.next()) |flag_value| {
+                                @field(config, field.name).value = try std.fmt.parseInt(@TypeOf(f.value.?), flag_value.value, 0);
+                            }
+                        },
+                        f16, f32, f64, f128 => {
+                            if (pa.next()) |flag_value| {
+                                @field(config, field.name).value = try std.fmt.parseFloat(@TypeOf(f.value), flag_value.value);
+                            }
+                        },
+                        ?f16, ?f32, ?f64, ?f128 => {
+                            if (pa.next()) |flag_value| {
+                                @field(config, field.name).value = try std.fmt.parseFloat(@TypeOf(f.value.?), flag_value.value);
+                            }
+                        },
+                        else => {},
                     }
                 }
             },
@@ -97,16 +121,38 @@ pub fn parseIter(allocator: std.mem.Allocator, iter: *Iterator, config: anytype)
                     const f = @field(config, field.name);
 
                     if (comptime !std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix)) break :blk;
+                    if (f.short != arg.value[0]) break :blk;
 
-                    if (f.short == arg.value[0] and
-                        std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix))
-                    {
-                        switch (@TypeOf(f.value)) {
-                            bool => {
-                                @field(config, field.name).value = true;
-                            },
-                            else => {},
-                        }
+                    switch (@TypeOf(f.value)) {
+                        bool, ?bool => {
+                            @field(config, field.name).value = true;
+                        },
+                        []const u8 => {
+                            if (pa.next()) |flag_value| {
+                                @field(config, field.name).value = flag_value.value;
+                            }
+                        },
+                        i8, u8, i16, u16, i32, u32, i64, u64, i128, u128 => {
+                            if (pa.next()) |flag_value| {
+                                @field(config, field.name).value = try std.fmt.parseInt(@TypeOf(f.value), flag_value.value, 0);
+                            }
+                        },
+                        ?i8, ?u8, ?i16, ?u16, ?i32, ?u32, ?i64, ?u64, ?i128, ?u128 => {
+                            if (pa.next()) |flag_value| {
+                                @field(config, field.name).value = try std.fmt.parseInt(@TypeOf(f.value.?), flag_value.value, 0);
+                            }
+                        },
+                        f16, f32, f64, f128 => {
+                            if (pa.next()) |flag_value| {
+                                @field(config, field.name).value = try std.fmt.parseFloat(@TypeOf(f.value), flag_value.value);
+                            }
+                        },
+                        ?f16, ?f32, ?f64, ?f128 => {
+                            if (pa.next()) |flag_value| {
+                                @field(config, field.name).value = try std.fmt.parseFloat(@TypeOf(f.value.?), flag_value.value);
+                            }
+                        },
+                        else => {},
                     }
                 }
             },
@@ -171,6 +217,21 @@ test "parseIter" {
 
         try expectEqual(true, config.trigger.value);
         try expectEqual(true, config.debug.value);
+    }
+    {
+        // optional flags
+        var config = struct {
+            trigger: Flag(?bool) = .{ .long = "trigger" },
+            debug: Flag(?bool) = .{ .short = 'd' },
+        }{};
+
+        const arguments = &.{ "main", "--trigger" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqual(true, config.trigger.value);
+        try expectEqual(null, config.debug.value);
     }
     {
         // parse both short and long flags
@@ -263,6 +324,72 @@ test "parseIter" {
         try expectEqualSlices(u8, "input.txt", config.file.value);
         try expectEqual(true, config.trigger.value);
         try expectEqual(true, config.debug.value);
+    }
+    {
+        // flag with string value
+        var config = struct {
+            file: Flag([]const u8) = .{ .long = "file", .short = 'f' },
+            debug: Flag(bool) = .{ .long = "debug", .short = 'd' },
+        }{};
+
+        const arguments = &.{ "main", "--file", "input.txt", "-d" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqualSlices(u8, "input.txt", config.file.value);
+        try expectEqual(true, config.debug.value);
+    }
+    {
+        // short flag with text input
+        var config = struct {
+            file: Flag([]const u8) = .{ .long = "file", .short = 'f' },
+            debug: Flag(bool) = .{ .long = "debug", .short = 'd' },
+        }{};
+
+        const arguments = &.{ "main", "-f", "input.txt", "-d" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqualSlices(u8, "input.txt", config.file.value);
+        try expectEqual(true, config.debug.value);
+    }
+    {
+        // flag with int value and also it can be optional
+        var config = struct {
+            file: Flag([]const u8) = .{ .long = "file", .short = 'f' },
+            debug: Flag(bool) = .{ .long = "debug", .short = 'd' },
+            number: Flag(?i32) = .{ .long = "number", .short = 'n' },
+        }{};
+
+        const arguments = &.{ "main", "--file", "input.txt", "-d", "-n", "3" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqualSlices(u8, "input.txt", config.file.value);
+        try expectEqual(true, config.debug.value);
+        try expectEqual(3, config.number.value);
+    }
+    {
+        // float values
+        var config = struct {
+            file: Flag([]const u8) = .{ .long = "file", .short = 'f' },
+            debug: Flag(?bool) = .{ .long = "debug", .short = 'd' },
+            number: Flag(f16) = .{ .short = 'n' },
+            distance: Flag(?f64) = .{ .long = "distance" },
+        }{};
+
+        const arguments = &.{ "main", "--distance", "1.2", "--file", "input.txt", "-n", "3" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqualSlices(u8, "input.txt", config.file.value);
+        try expectEqual(null, config.debug.value);
+        try expectEqual(1.2, config.distance.value);
+        try expectEqual(3, config.number.value);
     }
 }
 
