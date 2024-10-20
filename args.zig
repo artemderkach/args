@@ -87,7 +87,7 @@ pub fn parseIter(allocator: std.mem.Allocator, iter: *Iterator, config: anytype)
                         bool, ?bool => {
                             @field(config, field.name).value = true;
                         },
-                        []const u8 => {
+                        []const u8, ?[]const u8 => {
                             if (pa.next()) |flag_value| {
                                 @field(config, field.name).value = flag_value.value;
                             }
@@ -127,7 +127,7 @@ pub fn parseIter(allocator: std.mem.Allocator, iter: *Iterator, config: anytype)
                         bool, ?bool => {
                             @field(config, field.name).value = true;
                         },
-                        []const u8 => {
+                        []const u8, ?[]const u8 => {
                             if (pa.next()) |flag_value| {
                                 @field(config, field.name).value = flag_value.value;
                             }
@@ -390,6 +390,21 @@ test "parseIter" {
         try expectEqual(null, config.debug.value);
         try expectEqual(1.2, config.distance.value);
         try expectEqual(3, config.number.value);
+    }
+    {
+        // optional text input
+        var config = struct {
+            file: Flag(?[]const u8) = .{ .long = "file" },
+            directory: Flag(?[]const u8) = .{ .short = 'd' },
+        }{};
+
+        const arguments = &.{ "main", "-d", "/home" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqualSlices(u8, "/home", config.directory.value.?);
+        try expectEqual(null, config.file.value);
     }
 }
 
