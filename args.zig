@@ -28,11 +28,20 @@ const IteratorTest = struct {
 };
 
 const FlagTypePrefix = "args.Flag";
+/// struct representing command line flag (both short and long)
 pub fn Flag(comptime T: type) type {
     return struct {
         value: T = undefined,
         long: []const u8 = undefined,
         short: u8 = undefined,
+    };
+}
+
+const ArgTypePrefix = "args.Arg";
+/// struct represenging positional argument
+pub fn Arg(comptime T: type) type {
+    return struct {
+        value: T = undefined,
     };
 }
 
@@ -65,15 +74,15 @@ pub fn parseIter(allocator: std.mem.Allocator, iter: *Iterator, config: anytype)
     if (!pa.skip()) unreachable;
 
     while (pa.next()) |arg| {
-        std.debug.print("arg: {any}, {s}\n", .{ arg.Type, arg.value });
+        // std.debug.print("arg: {any}, {s}\n", .{ arg.Type, arg.value });
         switch (arg.Type) {
             .long => {
-                inline for (std.meta.fields(@TypeOf(config.*))) |field| {
+                inline for (std.meta.fields(@TypeOf(config.*))) |field| blk: {
                     const f = @field(config, field.name);
 
-                    if (std.mem.eql(u8, f.long, arg.value) and
-                        std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix))
-                    {
+                    if (comptime !std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix)) break :blk;
+
+                    if (std.mem.eql(u8, f.long, arg.value)) {
                         switch (@TypeOf(f.value)) {
                             bool => {
                                 @field(config, field.name).value = true;
@@ -84,8 +93,10 @@ pub fn parseIter(allocator: std.mem.Allocator, iter: *Iterator, config: anytype)
                 }
             },
             .short => {
-                inline for (std.meta.fields(@TypeOf(config.*))) |field| {
+                inline for (std.meta.fields(@TypeOf(config.*))) |field| blk: {
                     const f = @field(config, field.name);
+
+                    if (comptime !std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix)) break :blk;
 
                     if (f.short == arg.value[0] and
                         std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix))
@@ -99,7 +110,12 @@ pub fn parseIter(allocator: std.mem.Allocator, iter: *Iterator, config: anytype)
                     }
                 }
             },
-            .arg => {},
+            .arg => {
+                inline for (std.meta.fields(@TypeOf(config.*))) |field| blk: {
+                    if (comptime !std.mem.startsWith(u8, @typeName(field.type), ArgTypePrefix)) break :blk;
+                    @field(config, field.name).value = arg.value;
+                }
+            },
         }
     }
 }
@@ -200,6 +216,53 @@ test "parseIter" {
 
         try expectEqual(true, config.trigger.value);
         try expectEqual(false, config.debug.value);
+    }
+    {
+        // empty command
+        // default values should be changed
+        var config = struct {
+            serial: struct {} = .{},
+            trigger: Flag(bool) = .{ .long = "trigger", .short = 't', .value = false },
+            debug: Flag(bool) = .{ .long = "debug", .short = 'd', .value = false },
+        }{};
+
+        const arguments = &.{ "main", "--debug", "--trigger" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqual(true, config.trigger.value);
+        try expectEqual(true, config.debug.value);
+    }
+    {
+        // parse positional argument
+        var config = struct {
+            file: Arg([]const u8) = .{},
+        }{};
+
+        const arguments = &.{ "main", "input.txt" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqualSlices(u8, "input.txt", config.file.value);
+    }
+    {
+        // parse positional argument with flags
+        var config = struct {
+            file: Arg([]const u8) = .{},
+            trigger: Flag(bool) = .{ .long = "trigger", .short = 't' },
+            debug: Flag(bool) = .{ .long = "debug", .short = 'd' },
+        }{};
+
+        const arguments = &.{ "main", "--debug", "input.txt", "-t" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqualSlices(u8, "input.txt", config.file.value);
+        try expectEqual(true, config.trigger.value);
+        try expectEqual(true, config.debug.value);
     }
 }
 
