@@ -44,5 +44,3 @@ TODO:
 - add more sophisticated parsing possibilities for flags `--fl=123`
 - add possibility for negative flag values (currently will be parsed as shourt flag)
 
-FIX:
-- figure the code for subcommand positioning (breaks if it is first)
