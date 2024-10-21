@@ -86,42 +86,14 @@ pub fn parseIter(allocator: std.mem.Allocator, iter: *Iterator, config: anytype)
 }
 
 fn applyConfig(pa: *ParsedArgs, config: anytype) !void {
-    // skip root command
-
     while (pa.next()) |arg| {
-        std.debug.print("arg: {any}, {s}\n", .{ arg.Type, arg.value });
+        // std.debug.print("arg: {any}, {s}\n", .{ arg.Type, arg.value });
         switch (arg.Type) {
             .long, .short => {
                 try applyFlag(pa, config, arg);
             },
             .arg => {
-                blk: inline for (std.meta.fields(@TypeOf(config.*))) |field| {
-                    std.debug.print("---> {s} {s} {s}\n", .{
-                        arg.value,
-                        field.name,
-                        @typeName(field.type),
-                    });
-                    if (comptime std.mem.startsWith(u8, @typeName(field.type), ArgTypePrefix)) {
-                        std.debug.print("+++++ {}\n", .{@field(config, field.name).called});
-
-                        if (!@field(config, field.name).called) {
-                            @field(config, field.name).value = arg.value;
-                            @field(config, field.name).called = true;
-
-                            break :blk;
-                        }
-                    } else {
-                        inline for (std.meta.fields(@TypeOf(@field(config, field.name)))) |inner_field| {
-                            if (comptime std.mem.startsWith(u8, @typeName(inner_field.type), CmdTypePrefix)) {
-                                @field(@field(config, field.name), inner_field.name).called = true;
-                                try applyConfig(pa, &(@field(config, field.name)));
-                                break :blk;
-                            }
-                        }
-                        std.debug.print("arg.value: {s}, field.name: {s}\n", .{ arg.value, field.name });
-                        unreachable;
-                    }
-                }
+                try applyArg(pa, config, arg);
             },
         }
     }
@@ -167,6 +139,33 @@ fn applyFlag(pa: *ParsedArgs, config: anytype, arg: ParsedArg) !void {
             else => {
                 unreachable;
             },
+        }
+    }
+}
+
+fn applyArg(pa: *ParsedArgs, config: anytype, arg: ParsedArg) !void {
+    inline for (std.meta.fields(@TypeOf(config.*))) |field| {
+        if (comptime std.mem.startsWith(u8, @typeName(field.type), CmdTypePrefix)) continue;
+        if (comptime std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix)) continue;
+
+        if (comptime std.mem.startsWith(u8, @typeName(field.type), ArgTypePrefix)) {
+            if (!@field(config, field.name).called) {
+                @field(config, field.name).value = arg.value;
+                @field(config, field.name).called = true;
+
+                return;
+            }
+        } else {
+            inline for (std.meta.fields(@TypeOf(@field(config, field.name)))) |inner_field| {
+                if (comptime std.mem.startsWith(u8, @typeName(inner_field.type), CmdTypePrefix)) {
+                    @field(@field(config, field.name), inner_field.name).called = true;
+                    try applyConfig(pa, &(@field(config, field.name)));
+
+                    return;
+                }
+            }
+            std.debug.print("arg.value: {s}, field.name: {s}\n", .{ arg.value, field.name });
+            unreachable;
         }
     }
 }
@@ -444,27 +443,28 @@ test "parseIter" {
         try expectEqualSlices(u8, "/dev/tty", config.port.value.?);
         try expectEqualSlices(u8, "out.txt", config.out.value);
     }
-    // {
-    //     // subcommand with options and args
-    //     var config = struct {
-    //         serial: struct {
-    //             cmd: Cmd() = .{ .name = "serial" },
-    //             debug: Flag(?bool) = .{ .long = "debug", .short = 'd' },
-    //             port: Arg([]const u8) = .{},
-    //         } = .{},
-    //         trigger: Flag(?bool) = .{ .long = "trigger", .short = 't' },
-    //     }{};
-    //
-    //     const arguments = &.{ "main", "serial", "/dev/tty" };
-    //
-    //     var iter = IteratorTest{ .args = arguments };
-    //     try parseIter(allocator, &iter, &config);
-    //
-    //     // try expectEqualSlices(u8, "/home", config.directory.value.?);
-    //     try expectEqual(true, config.serial.cmd.called);
-    //     try expectEqual(null, config.serial.debug.value);
-    //     try expectEqualSlices(u8, "/dev/tty", config.serial.port.value);
-    // }
+    {
+        // subcommand with options and args
+        var config = struct {
+            serial: struct {
+                cmd: Cmd() = .{ .name = "serial" },
+                debug: Flag(?bool) = .{ .long = "debug", .short = 'd' },
+                port: Arg([]const u8) = .{},
+            } = .{},
+            trigger: Flag(?bool) = .{ .long = "trigger", .short = 't' },
+        }{};
+
+        const arguments = &.{ "main", "-t", "serial", "/dev/tty" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        // try expectEqualSlices(u8, "/home", config.directory.value.?);
+        try expectEqual(true, config.serial.cmd.called);
+        try expectEqual(null, config.serial.debug.value);
+        try expectEqual(true, config.trigger.value.?);
+        try expectEqualSlices(u8, "/dev/tty", config.serial.port.value);
+    }
 }
 
 pub fn parseStruct(cfg: anytype, _: []const u8) void {
