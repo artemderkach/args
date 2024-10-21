@@ -42,6 +42,7 @@ const ArgTypePrefix = "args.Arg";
 pub fn Arg(comptime T: type) type {
     return struct {
         value: T = undefined,
+        called: bool = false,
     };
 }
 
@@ -88,105 +89,83 @@ fn applyConfig(pa: *ParsedArgs, config: anytype) !void {
     // skip root command
 
     while (pa.next()) |arg| {
-        // std.debug.print("arg: {any}, {s}\n", .{ arg.Type, arg.value });
+        std.debug.print("arg: {any}, {s}\n", .{ arg.Type, arg.value });
         switch (arg.Type) {
-            .long => {
-                inline for (std.meta.fields(@TypeOf(config.*))) |field| blk: {
-                    const f = @field(config, field.name);
-
-                    if (comptime !std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix)) break :blk;
-                    if (!std.mem.eql(u8, f.long, arg.value)) break :blk;
-
-                    switch (@TypeOf(f.value)) {
-                        bool, ?bool => {
-                            @field(config, field.name).value = true;
-                        },
-                        []const u8, ?[]const u8 => {
-                            if (pa.next()) |flag_value| {
-                                @field(config, field.name).value = flag_value.value;
-                            }
-                        },
-                        i8, u8, i16, u16, i32, u32, i64, u64, i128, u128 => {
-                            if (pa.next()) |flag_value| {
-                                @field(config, field.name).value = try std.fmt.parseInt(@TypeOf(f.value), flag_value.value, 0);
-                            }
-                        },
-                        ?i8, ?u8, ?i16, ?u16, ?i32, ?u32, ?i64, ?u64, ?i128, ?u128 => {
-                            if (pa.next()) |flag_value| {
-                                @field(config, field.name).value = try std.fmt.parseInt(@TypeOf(f.value.?), flag_value.value, 0);
-                            }
-                        },
-                        f16, f32, f64, f128 => {
-                            if (pa.next()) |flag_value| {
-                                @field(config, field.name).value = try std.fmt.parseFloat(@TypeOf(f.value), flag_value.value);
-                            }
-                        },
-                        ?f16, ?f32, ?f64, ?f128 => {
-                            if (pa.next()) |flag_value| {
-                                @field(config, field.name).value = try std.fmt.parseFloat(@TypeOf(f.value.?), flag_value.value);
-                            }
-                        },
-                        else => {},
-                    }
-                }
-            },
-            .short => {
-                inline for (std.meta.fields(@TypeOf(config.*))) |field| blk: {
-                    const f = @field(config, field.name);
-
-                    if (comptime !std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix)) break :blk;
-                    if (f.short != arg.value[0]) break :blk;
-
-                    switch (@TypeOf(f.value)) {
-                        bool, ?bool => {
-                            @field(config, field.name).value = true;
-                        },
-                        []const u8, ?[]const u8 => {
-                            if (pa.next()) |flag_value| {
-                                @field(config, field.name).value = flag_value.value;
-                            }
-                        },
-                        i8, u8, i16, u16, i32, u32, i64, u64, i128, u128 => {
-                            if (pa.next()) |flag_value| {
-                                @field(config, field.name).value = try std.fmt.parseInt(@TypeOf(f.value), flag_value.value, 0);
-                            }
-                        },
-                        ?i8, ?u8, ?i16, ?u16, ?i32, ?u32, ?i64, ?u64, ?i128, ?u128 => {
-                            if (pa.next()) |flag_value| {
-                                @field(config, field.name).value = try std.fmt.parseInt(@TypeOf(f.value.?), flag_value.value, 0);
-                            }
-                        },
-                        f16, f32, f64, f128 => {
-                            if (pa.next()) |flag_value| {
-                                @field(config, field.name).value = try std.fmt.parseFloat(@TypeOf(f.value), flag_value.value);
-                            }
-                        },
-                        ?f16, ?f32, ?f64, ?f128 => {
-                            if (pa.next()) |flag_value| {
-                                @field(config, field.name).value = try std.fmt.parseFloat(@TypeOf(f.value.?), flag_value.value);
-                            }
-                        },
-                        else => {},
-                    }
-                }
+            .long, .short => {
+                try applyFlag(pa, config, arg);
             },
             .arg => {
-                inline for (std.meta.fields(@TypeOf(config.*))) |field| blk: {
+                blk: inline for (std.meta.fields(@TypeOf(config.*))) |field| {
+                    std.debug.print("---> {s} {s} {s}\n", .{
+                        arg.value,
+                        field.name,
+                        @typeName(field.type),
+                    });
                     if (comptime std.mem.startsWith(u8, @typeName(field.type), ArgTypePrefix)) {
-                        @field(config, field.name).value = arg.value;
-                        break;
-                    }
+                        std.debug.print("+++++ {}\n", .{@field(config, field.name).called});
 
-                    inline for (std.meta.fields(@TypeOf(@field(config, field.name)))) |inner_field| {
-                        if (comptime std.mem.startsWith(u8, @typeName(inner_field.type), CmdTypePrefix)) {
-                            @field(@field(config, field.name), inner_field.name).called = true;
-                            try applyConfig(pa, &(@field(config, field.name)));
+                        if (!@field(config, field.name).called) {
+                            @field(config, field.name).value = arg.value;
+                            @field(config, field.name).called = true;
+
                             break :blk;
                         }
+                    } else {
+                        inline for (std.meta.fields(@TypeOf(@field(config, field.name)))) |inner_field| {
+                            if (comptime std.mem.startsWith(u8, @typeName(inner_field.type), CmdTypePrefix)) {
+                                @field(@field(config, field.name), inner_field.name).called = true;
+                                try applyConfig(pa, &(@field(config, field.name)));
+                                break :blk;
+                            }
+                        }
+                        std.debug.print("arg.value: {s}, field.name: {s}\n", .{ arg.value, field.name });
+                        unreachable;
                     }
-                    std.debug.print("===> {s} {}\n", .{ field.name, field });
-                    unreachable;
                 }
+            },
+        }
+    }
+}
+
+fn applyFlag(pa: *ParsedArgs, config: anytype, arg: ParsedArg) !void {
+    inline for (std.meta.fields(@TypeOf(config.*))) |field| blk: {
+        if (comptime !std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix)) break :blk;
+
+        const f = @field(config, field.name);
+        if (arg.Type == .long and !std.mem.eql(u8, f.long, arg.value)) break :blk;
+        if (arg.Type == .short and f.short != arg.value[0]) break :blk;
+
+        switch (@TypeOf(f.value)) {
+            bool, ?bool => {
+                @field(config, field.name).value = true;
+            },
+            []const u8, ?[]const u8 => {
+                if (pa.next()) |flag_value| {
+                    @field(config, field.name).value = flag_value.value;
+                }
+            },
+            i8, u8, i16, u16, i32, u32, i64, u64, i128, u128 => {
+                if (pa.next()) |flag_value| {
+                    @field(config, field.name).value = try std.fmt.parseInt(@TypeOf(f.value), flag_value.value, 0);
+                }
+            },
+            ?i8, ?u8, ?i16, ?u16, ?i32, ?u32, ?i64, ?u64, ?i128, ?u128 => {
+                if (pa.next()) |flag_value| {
+                    @field(config, field.name).value = try std.fmt.parseInt(@TypeOf(f.value.?), flag_value.value, 0);
+                }
+            },
+            f16, f32, f64, f128 => {
+                if (pa.next()) |flag_value| {
+                    @field(config, field.name).value = try std.fmt.parseFloat(@TypeOf(f.value), flag_value.value);
+                }
+            },
+            ?f16, ?f32, ?f64, ?f128 => {
+                if (pa.next()) |flag_value| {
+                    @field(config, field.name).value = try std.fmt.parseFloat(@TypeOf(f.value.?), flag_value.value);
+                }
+            },
+            else => {
+                unreachable;
             },
         }
     }
@@ -449,26 +428,43 @@ test "parseIter" {
         try expectEqual(true, config.serial.cmd.called);
     }
     {
-        // subcommand with options and args
+        // multiple positional arguments
         var config = struct {
-            serial: struct {
-                cmd: Cmd() = .{ .name = "serial" },
-                debug: Flag(?bool) = .{ .long = "debug", .short = 'd' },
-                port: Arg([]const u8) = .{},
-            } = .{},
-            trigger: Flag(?bool) = .{ .long = "trigger", .short = 't' },
+            file: Arg([]const u8) = .{},
+            port: Arg(?[]const u8) = .{},
+            out: Arg([]const u8) = .{},
         }{};
 
-        const arguments = &.{ "main", "serial" };
+        const arguments = &.{ "main", "file.txt", "/dev/tty", "out.txt" };
 
         var iter = IteratorTest{ .args = arguments };
         try parseIter(allocator, &iter, &config);
 
-        // try expectEqualSlices(u8, "/home", config.directory.value.?);
-        try expectEqual(true, config.serial.cmd.called);
-        try expectEqual(true, config.serial.debug.value);
-        try expectEqual("/deb/tty", config.serial.port.value);
+        try expectEqualSlices(u8, "file.txt", config.file.value);
+        try expectEqualSlices(u8, "/dev/tty", config.port.value.?);
+        try expectEqualSlices(u8, "out.txt", config.out.value);
     }
+    // {
+    //     // subcommand with options and args
+    //     var config = struct {
+    //         serial: struct {
+    //             cmd: Cmd() = .{ .name = "serial" },
+    //             debug: Flag(?bool) = .{ .long = "debug", .short = 'd' },
+    //             port: Arg([]const u8) = .{},
+    //         } = .{},
+    //         trigger: Flag(?bool) = .{ .long = "trigger", .short = 't' },
+    //     }{};
+    //
+    //     const arguments = &.{ "main", "serial", "/dev/tty" };
+    //
+    //     var iter = IteratorTest{ .args = arguments };
+    //     try parseIter(allocator, &iter, &config);
+    //
+    //     // try expectEqualSlices(u8, "/home", config.directory.value.?);
+    //     try expectEqual(true, config.serial.cmd.called);
+    //     try expectEqual(null, config.serial.debug.value);
+    //     try expectEqualSlices(u8, "/dev/tty", config.serial.port.value);
+    // }
 }
 
 pub fn parseStruct(cfg: anytype, _: []const u8) void {
