@@ -43,4 +43,5 @@ TODO:
 - add more sophisticated parsing possibilities for flags `-abc` as 3 short flags
 - add more sophisticated parsing possibilities for flags `--fl=123`
 - add possibility for negative flag values (currently will be parsed as shourt flag)
+- add possible enum inputs
 

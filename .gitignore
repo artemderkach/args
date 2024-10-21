@@ -2,3 +2,5 @@ zig-out
 .zig-cache
 main
 main.o
+example_flags
+example_flags.o

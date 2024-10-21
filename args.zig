@@ -64,7 +64,7 @@ pub fn parse(config: anytype) !void {
     var iter = try std.process.ArgIterator.initWithAllocator(allocator);
     defer iter.deinit();
 
-    try parseIter(allocator, config, &iter);
+    try parseIter(allocator, &iter, config);
 }
 
 /// parse command line arguments with provided allocator
