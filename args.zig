@@ -25,6 +25,9 @@ const IteratorTest = struct {
         iter.index += 1;
         return true;
     }
+
+    // resets the index
+    // pub fn reset(iter: *IteratorTest
 };
 
 const FlagTypePrefix = "args.Flag";
@@ -34,6 +37,7 @@ pub fn Flag(comptime T: type) type {
         value: T = undefined,
         long: []const u8 = undefined,
         short: u8 = undefined,
+        called: bool = false,
     };
 }
 
@@ -83,6 +87,11 @@ pub fn parseIter(allocator: std.mem.Allocator, iter: *Iterator, config: anytype)
     if (!pa.skip()) unreachable;
 
     try applyConfig(&pa, config);
+
+    pa.reset();
+    try secondPass(&pa, config);
+    pa.reset();
+    try thirdPass(&pa, config);
 }
 
 fn applyConfig(pa: *ParsedArgs, config: anytype) !void {
@@ -99,41 +108,106 @@ fn applyConfig(pa: *ParsedArgs, config: anytype) !void {
     }
 }
 
-fn applyFlag(pa: *ParsedArgs, config: anytype, arg: ParsedArg) !void {
+fn secondPass(pa: *ParsedArgs, config: anytype) !void {
+    pa.reset();
+    while (pa.nextFlag()) |arg| {
+        try applyFlag(pa, config, arg);
+    }
+
+    inline for (std.meta.fields(@TypeOf(config.*))) |field| blk: {
+        if (comptime std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix)) break :blk;
+        if (comptime std.mem.startsWith(u8, @typeName(field.type), ArgTypePrefix)) break :blk;
+        if (comptime std.mem.startsWith(u8, @typeName(field.type), CmdTypePrefix)) break :blk;
+
+        const cfg = &(@field(config, field.name));
+        inline for (std.meta.fields(@TypeOf(cfg.*))) |inner_field| inner_blk: {
+            if (!comptime std.mem.startsWith(u8, @typeName(inner_field.type), CmdTypePrefix)) break :inner_blk;
+
+            try secondPass(pa, cfg);
+        }
+    }
+}
+
+fn thirdPass(pa: *ParsedArgs, config: anytype) !void {
+    pa.reset();
+
+    inline for (std.meta.fields(@TypeOf(config.*))) |field| {
+        if (comptime std.mem.startsWith(u8, @typeName(field.type), ArgTypePrefix)) {
+            if (pa.nextArg()) |arg| {
+                std.debug.print("======> {any}\n", .{arg});
+                if (!@field(config, field.name).called) {
+                    @field(config, field.name).value = arg.value;
+                    @field(config, field.name).called = true;
+                }
+            }
+
+            return;
+        }
+    }
+
+    inline for (std.meta.fields(@TypeOf(config.*))) |field| blk: {
+        if (comptime std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix)) break :blk;
+        if (comptime std.mem.startsWith(u8, @typeName(field.type), ArgTypePrefix)) break :blk;
+        if (comptime std.mem.startsWith(u8, @typeName(field.type), CmdTypePrefix)) break :blk;
+
+        const cfg = &(@field(config, field.name));
+        inline for (std.meta.fields(@TypeOf(cfg.*))) |inner_field| inner_blk: {
+            if (!comptime std.mem.startsWith(u8, @typeName(inner_field.type), CmdTypePrefix)) break :inner_blk;
+
+            try thirdPass(pa, cfg);
+        }
+    }
+}
+
+fn applyFlag(pa: *ParsedArgs, config: anytype, argp: *ParsedArg) !void {
+    const arg = argp.*;
+
     inline for (std.meta.fields(@TypeOf(config.*))) |field| blk: {
         if (comptime !std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix)) break :blk;
 
         const f = @field(config, field.name);
+        if (f.called) break :blk;
+        if (arg.used) break :blk;
         if (arg.Type == .long and !std.mem.eql(u8, f.long, arg.value)) break :blk;
-        if (arg.Type == .short and f.short != arg.value[0]) break :blk;
+        if (arg.Type == .short and f.short != (arg.value)[0]) break :blk;
 
         switch (@TypeOf(f.value)) {
             bool, ?bool => {
                 @field(config, field.name).value = true;
+                @field(config, field.name).called = true;
             },
             []const u8, ?[]const u8 => {
+                std.debug.print("++++++++++++++ {any}\n", .{arg});
+                pa.values[arg.index].used = true;
+                std.debug.print("++++++++++++++ {any}\n", .{pa.values[arg.index]});
                 if (pa.next()) |flag_value| {
+                    flag_value.used = true;
                     @field(config, field.name).value = flag_value.value;
+                    @field(config, field.name).called = true;
                 }
             },
             i8, u8, i16, u16, i32, u32, i64, u64, i128, u128 => {
                 if (pa.next()) |flag_value| {
                     @field(config, field.name).value = try std.fmt.parseInt(@TypeOf(f.value), flag_value.value, 0);
+                    @field(config, field.name).called = true;
                 }
             },
             ?i8, ?u8, ?i16, ?u16, ?i32, ?u32, ?i64, ?u64, ?i128, ?u128 => {
                 if (pa.next()) |flag_value| {
                     @field(config, field.name).value = try std.fmt.parseInt(@TypeOf(f.value.?), flag_value.value, 0);
+                    @field(config, field.name).called = true;
                 }
             },
             f16, f32, f64, f128 => {
                 if (pa.next()) |flag_value| {
                     @field(config, field.name).value = try std.fmt.parseFloat(@TypeOf(f.value), flag_value.value);
+                    @field(config, field.name).called = true;
                 }
             },
             ?f16, ?f32, ?f64, ?f128 => {
                 if (pa.next()) |flag_value| {
                     @field(config, field.name).value = try std.fmt.parseFloat(@TypeOf(f.value.?), flag_value.value);
+                    @field(config, field.name).called = true;
                 }
             },
             else => {
@@ -143,12 +217,15 @@ fn applyFlag(pa: *ParsedArgs, config: anytype, arg: ParsedArg) !void {
     }
 }
 
-fn applyArg(pa: *ParsedArgs, config: anytype, arg: ParsedArg) !void {
+fn applyArg(pa: *ParsedArgs, config: anytype, argp: *ParsedArg) !void {
+    const arg = argp.*;
     inline for (std.meta.fields(@TypeOf(config.*))) |field| {
         if (comptime std.mem.startsWith(u8, @typeName(field.type), CmdTypePrefix)) continue;
         if (comptime std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix)) continue;
 
+        std.debug.print("arg.value: {s}, field.name: {s}\n", .{ arg.value, field.name });
         if (comptime std.mem.startsWith(u8, @typeName(field.type), ArgTypePrefix)) {
+            std.debug.print("----> arg.called: {}, field.name: {s}\n", .{ @field(config, field.name).called, field.name });
             if (!@field(config, field.name).called) {
                 @field(config, field.name).value = arg.value;
                 @field(config, field.name).called = true;
@@ -158,8 +235,16 @@ fn applyArg(pa: *ParsedArgs, config: anytype, arg: ParsedArg) !void {
         } else {
             inline for (std.meta.fields(@TypeOf(@field(config, field.name)))) |inner_field| {
                 if (comptime std.mem.startsWith(u8, @typeName(inner_field.type), CmdTypePrefix)) {
+                    const cfg = &(@field(config, field.name));
                     @field(@field(config, field.name), inner_field.name).called = true;
-                    try applyConfig(pa, &(@field(config, field.name)));
+
+                    argp.used = true;
+                    std.debug.print("++++++++++++++ {any}\n", .{arg});
+                    // std.debug.print("++++++++++++++ {any}\n", .{argp});
+                    if (pa.values.len > 2) {
+                        std.debug.print("++++++++++++++ {any}\n", .{pa.values[2]});
+                    }
+                    try applyConfig(pa, cfg);
 
                     return;
                 }
@@ -444,7 +529,7 @@ test "parseIter" {
         try expectEqualSlices(u8, "out.txt", config.out.value);
     }
     {
-        // subcommand with options and args
+        //
         var config = struct {
             serial: struct {
                 cmd: Cmd() = .{ .name = "serial" },
@@ -464,6 +549,50 @@ test "parseIter" {
         try expectEqual(null, config.serial.debug.value);
         try expectEqual(true, config.trigger.value.?);
         try expectEqualSlices(u8, "/dev/tty", config.serial.port.value);
+    }
+    {
+        // subcommand with options and args
+        var config = struct {
+            serial: struct {
+                cmd: Cmd() = .{ .name = "serial" },
+                debug: Flag(?bool) = .{ .long = "debug", .short = 'd' },
+                port: Arg([]const u8) = .{},
+            } = .{},
+            trigger: Flag(?bool) = .{ .long = "trigger", .short = 't' },
+        }{};
+
+        const arguments = &.{ "main", "serial", "/dev/tty", "-t" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        // try expectEqualSlices(u8, "/home", config.directory.value.?);
+        try expectEqual(true, config.serial.cmd.called);
+        try expectEqual(null, config.serial.debug.value);
+        try expectEqual(true, config.trigger.value);
+        try expectEqualSlices(u8, "/dev/tty", config.serial.port.value);
+    }
+    {
+        // positional arg after subcommand
+        var config = struct {
+            serial: struct {
+                cmd: Cmd() = .{ .name = "serial" },
+                debug: Flag(?bool) = .{ .long = "debug", .short = 'd' },
+            } = .{},
+            port: Arg([]const u8) = .{},
+        }{};
+
+        const arguments = &.{ "main", "-t", "serial", "/dev/tty" };
+
+        std.debug.print("===============\n", .{});
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        // try expectEqualSlices(u8, "/home", config.directory.value.?);
+        try expectEqual(true, config.serial.cmd.called);
+        try expectEqual(null, config.serial.debug.value);
+        try expectEqualSlices(u8, "/dev/tty", config.port.value);
     }
 }
 
@@ -523,25 +652,50 @@ const ArgType = enum {
 const ParsedArg = struct {
     Type: ArgType,
     value: []const u8,
+    used: bool = false,
+    index: usize,
 };
 
 const ParsedArgs = struct {
     values: []ParsedArg,
     index: usize = 0,
 
-    pub fn next(self: *ParsedArgs) ?ParsedArg {
+    pub fn next(self: *ParsedArgs) ?*ParsedArg {
         // all values are already read
         if (self.index >= self.values.len) return null;
 
-        const arg = self.values[self.index];
+        var arg = self.values[self.index];
+        _ = &arg;
+
         self.index += 1;
-        return arg;
+        return &arg;
+    }
+
+    pub fn nextFlag(self: *ParsedArgs) ?*ParsedArg {
+        while (self.next()) |arg| {
+            if (arg.used or arg.Type == .arg) continue;
+            return arg;
+        }
+
+        return null;
+    }
+
+    pub fn nextArg(self: *ParsedArgs) ?*ParsedArg {
+        while (self.next()) |arg| {
+            if (!arg.used and arg.Type == .arg) return arg;
+        }
+
+        return null;
     }
 
     pub fn skip(self: *ParsedArgs) bool {
         if (self.index >= self.values.len) return false;
         self.index += 1;
         return true;
+    }
+
+    pub fn reset(self: *ParsedArgs) void {
+        self.index = 1;
     }
 
     pub fn deinit(self: *ParsedArgs, allocator: std.mem.Allocator) void {
@@ -555,11 +709,15 @@ fn parseArgs(allocator: std.mem.Allocator, iter: *Iterator) !ParsedArgs {
     var al = std.ArrayList(ParsedArg).init(allocator);
     errdefer al.deinit();
 
+    var i: usize = 0;
     while (iter.next()) |arg| {
+        defer i += 1;
+
         if (arg.len > 2 and std.mem.eql(u8, arg[0..2], "--")) {
             try al.append(.{
                 .Type = .long,
                 .value = arg[2..arg.len],
+                .index = i,
             });
             continue;
         }
@@ -567,6 +725,7 @@ fn parseArgs(allocator: std.mem.Allocator, iter: *Iterator) !ParsedArgs {
             try al.append(.{
                 .Type = .short,
                 .value = arg[1..arg.len],
+                .index = i,
             });
             continue;
         }
@@ -574,6 +733,7 @@ fn parseArgs(allocator: std.mem.Allocator, iter: *Iterator) !ParsedArgs {
         try al.append(.{
             .Type = .arg,
             .value = arg,
+            .index = i,
         });
     }
 
