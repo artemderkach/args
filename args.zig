@@ -25,9 +25,6 @@ const IteratorTest = struct {
         iter.index += 1;
         return true;
     }
-
-    // resets the index
-    // pub fn reset(iter: *IteratorTest
 };
 
 const FlagTypePrefix = "args.Flag";
@@ -134,8 +131,8 @@ fn thirdPass(pa: *ParsedArgs, config: anytype) !void {
     inline for (std.meta.fields(@TypeOf(config.*))) |field| {
         if (comptime std.mem.startsWith(u8, @typeName(field.type), ArgTypePrefix)) {
             if (pa.nextArg()) |arg| {
-                std.debug.print("======> {any}\n", .{arg});
                 if (!@field(config, field.name).called) {
+                    pa.values[arg.index].used = true;
                     @field(config, field.name).value = arg.value;
                     @field(config, field.name).called = true;
                 }
@@ -159,9 +156,7 @@ fn thirdPass(pa: *ParsedArgs, config: anytype) !void {
     }
 }
 
-fn applyFlag(pa: *ParsedArgs, config: anytype, argp: *ParsedArg) !void {
-    const arg = argp.*;
-
+fn applyFlag(pa: *ParsedArgs, config: anytype, arg: ParsedArg) !void {
     inline for (std.meta.fields(@TypeOf(config.*))) |field| blk: {
         if (comptime !std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix)) break :blk;
 
@@ -173,39 +168,46 @@ fn applyFlag(pa: *ParsedArgs, config: anytype, argp: *ParsedArg) !void {
 
         switch (@TypeOf(f.value)) {
             bool, ?bool => {
+                pa.values[arg.index].used = true;
                 @field(config, field.name).value = true;
                 @field(config, field.name).called = true;
             },
             []const u8, ?[]const u8 => {
-                std.debug.print("++++++++++++++ {any}\n", .{arg});
                 pa.values[arg.index].used = true;
-                std.debug.print("++++++++++++++ {any}\n", .{pa.values[arg.index]});
                 if (pa.next()) |flag_value| {
-                    flag_value.used = true;
+                    pa.values[flag_value.index].used = true;
                     @field(config, field.name).value = flag_value.value;
                     @field(config, field.name).called = true;
                 }
             },
             i8, u8, i16, u16, i32, u32, i64, u64, i128, u128 => {
+                pa.values[arg.index].used = true;
                 if (pa.next()) |flag_value| {
+                    pa.values[flag_value.index].used = true;
                     @field(config, field.name).value = try std.fmt.parseInt(@TypeOf(f.value), flag_value.value, 0);
                     @field(config, field.name).called = true;
                 }
             },
             ?i8, ?u8, ?i16, ?u16, ?i32, ?u32, ?i64, ?u64, ?i128, ?u128 => {
+                pa.values[arg.index].used = true;
                 if (pa.next()) |flag_value| {
+                    pa.values[flag_value.index].used = true;
                     @field(config, field.name).value = try std.fmt.parseInt(@TypeOf(f.value.?), flag_value.value, 0);
                     @field(config, field.name).called = true;
                 }
             },
             f16, f32, f64, f128 => {
+                pa.values[arg.index].used = true;
                 if (pa.next()) |flag_value| {
+                    pa.values[flag_value.index].used = true;
                     @field(config, field.name).value = try std.fmt.parseFloat(@TypeOf(f.value), flag_value.value);
                     @field(config, field.name).called = true;
                 }
             },
             ?f16, ?f32, ?f64, ?f128 => {
+                pa.values[arg.index].used = true;
                 if (pa.next()) |flag_value| {
+                    pa.values[flag_value.index].used = true;
                     @field(config, field.name).value = try std.fmt.parseFloat(@TypeOf(f.value.?), flag_value.value);
                     @field(config, field.name).called = true;
                 }
@@ -217,16 +219,14 @@ fn applyFlag(pa: *ParsedArgs, config: anytype, argp: *ParsedArg) !void {
     }
 }
 
-fn applyArg(pa: *ParsedArgs, config: anytype, argp: *ParsedArg) !void {
-    const arg = argp.*;
+fn applyArg(pa: *ParsedArgs, config: anytype, arg: ParsedArg) !void {
     inline for (std.meta.fields(@TypeOf(config.*))) |field| {
         if (comptime std.mem.startsWith(u8, @typeName(field.type), CmdTypePrefix)) continue;
         if (comptime std.mem.startsWith(u8, @typeName(field.type), FlagTypePrefix)) continue;
 
-        std.debug.print("arg.value: {s}, field.name: {s}\n", .{ arg.value, field.name });
         if (comptime std.mem.startsWith(u8, @typeName(field.type), ArgTypePrefix)) {
-            std.debug.print("----> arg.called: {}, field.name: {s}\n", .{ @field(config, field.name).called, field.name });
             if (!@field(config, field.name).called) {
+                pa.values[arg.index].used = true;
                 @field(config, field.name).value = arg.value;
                 @field(config, field.name).called = true;
 
@@ -235,15 +235,10 @@ fn applyArg(pa: *ParsedArgs, config: anytype, argp: *ParsedArg) !void {
         } else {
             inline for (std.meta.fields(@TypeOf(@field(config, field.name)))) |inner_field| {
                 if (comptime std.mem.startsWith(u8, @typeName(inner_field.type), CmdTypePrefix)) {
+                    pa.values[arg.index].used = true;
                     const cfg = &(@field(config, field.name));
                     @field(@field(config, field.name), inner_field.name).called = true;
 
-                    argp.used = true;
-                    std.debug.print("++++++++++++++ {any}\n", .{arg});
-                    // std.debug.print("++++++++++++++ {any}\n", .{argp});
-                    if (pa.values.len > 2) {
-                        std.debug.print("++++++++++++++ {any}\n", .{pa.values[2]});
-                    }
                     try applyConfig(pa, cfg);
 
                     return;
@@ -278,6 +273,7 @@ test "parseIter" {
         try parseIter(allocator, &iter, &config);
 
         try expectEqual(true, config.trigger.value);
+        try expectEqual(true, config.trigger.called);
     }
     {
         // parse only short flag
@@ -306,6 +302,8 @@ test "parseIter" {
 
         try expectEqual(true, config.trigger.value);
         try expectEqual(true, config.debug.value);
+        try expectEqual(true, config.trigger.called);
+        try expectEqual(true, config.debug.called);
     }
     {
         // optional flags
@@ -321,6 +319,8 @@ test "parseIter" {
 
         try expectEqual(true, config.trigger.value);
         try expectEqual(null, config.debug.value);
+        try expectEqual(true, config.trigger.called);
+        try expectEqual(false, config.debug.called);
     }
     {
         // parse both short and long flags
@@ -336,6 +336,8 @@ test "parseIter" {
 
         try expectEqual(true, config.trigger.value);
         try expectEqual(true, config.debug.value);
+        try expectEqual(true, config.trigger.called);
+        try expectEqual(true, config.debug.called);
     }
     {
         // some values not provided
@@ -351,6 +353,8 @@ test "parseIter" {
 
         try expectEqual(false, config.trigger.value);
         try expectEqual(true, config.debug.value);
+        try expectEqual(false, config.trigger.called);
+        try expectEqual(true, config.debug.called);
     }
     {
         // default values
@@ -366,6 +370,8 @@ test "parseIter" {
 
         try expectEqual(true, config.trigger.value);
         try expectEqual(false, config.debug.value);
+        try expectEqual(false, config.trigger.called);
+        try expectEqual(false, config.debug.called);
     }
     {
         // empty command
@@ -383,6 +389,8 @@ test "parseIter" {
 
         try expectEqual(true, config.trigger.value);
         try expectEqual(true, config.debug.value);
+        try expectEqual(true, config.trigger.called);
+        try expectEqual(true, config.debug.called);
     }
     {
         // parse positional argument
@@ -396,6 +404,7 @@ test "parseIter" {
         try parseIter(allocator, &iter, &config);
 
         try expectEqualSlices(u8, "input.txt", config.file.value);
+        try expectEqual(true, config.file.called);
     }
     {
         // parse positional argument with flags
@@ -413,6 +422,9 @@ test "parseIter" {
         try expectEqualSlices(u8, "input.txt", config.file.value);
         try expectEqual(true, config.trigger.value);
         try expectEqual(true, config.debug.value);
+        try expectEqual(true, config.file.called);
+        try expectEqual(true, config.trigger.called);
+        try expectEqual(true, config.debug.called);
     }
     {
         // flag with string value
@@ -428,6 +440,8 @@ test "parseIter" {
 
         try expectEqualSlices(u8, "input.txt", config.file.value);
         try expectEqual(true, config.debug.value);
+        try expectEqual(true, config.file.called);
+        try expectEqual(true, config.debug.called);
     }
     {
         // short flag with text input
@@ -443,6 +457,8 @@ test "parseIter" {
 
         try expectEqualSlices(u8, "input.txt", config.file.value);
         try expectEqual(true, config.debug.value);
+        try expectEqual(true, config.file.called);
+        try expectEqual(true, config.debug.called);
     }
     {
         // flag with int value and also it can be optional
@@ -460,6 +476,9 @@ test "parseIter" {
         try expectEqualSlices(u8, "input.txt", config.file.value);
         try expectEqual(true, config.debug.value);
         try expectEqual(3, config.number.value);
+        try expectEqual(true, config.file.called);
+        try expectEqual(true, config.debug.called);
+        try expectEqual(true, config.number.called);
     }
     {
         // float values
@@ -479,6 +498,10 @@ test "parseIter" {
         try expectEqual(null, config.debug.value);
         try expectEqual(1.2, config.distance.value);
         try expectEqual(3, config.number.value);
+        try expectEqual(true, config.file.called);
+        try expectEqual(false, config.debug.called);
+        try expectEqual(true, config.number.called);
+        try expectEqual(true, config.distance.called);
     }
     {
         // optional text input
@@ -494,6 +517,8 @@ test "parseIter" {
 
         try expectEqualSlices(u8, "/home", config.directory.value.?);
         try expectEqual(null, config.file.value);
+        try expectEqual(false, config.file.called);
+        try expectEqual(true, config.directory.called);
     }
     {
         // subcommand
@@ -508,7 +533,6 @@ test "parseIter" {
         var iter = IteratorTest{ .args = arguments };
         try parseIter(allocator, &iter, &config);
 
-        // try expectEqualSlices(u8, "/home", config.directory.value.?);
         try expectEqual(true, config.serial.cmd.called);
     }
     {
@@ -527,9 +551,12 @@ test "parseIter" {
         try expectEqualSlices(u8, "file.txt", config.file.value);
         try expectEqualSlices(u8, "/dev/tty", config.port.value.?);
         try expectEqualSlices(u8, "out.txt", config.out.value);
+        try expectEqual(true, config.file.called);
+        try expectEqual(true, config.port.called);
+        try expectEqual(true, config.out.called);
     }
     {
-        //
+        // subcommand with multiple inputs
         var config = struct {
             serial: struct {
                 cmd: Cmd() = .{ .name = "serial" },
@@ -549,6 +576,10 @@ test "parseIter" {
         try expectEqual(null, config.serial.debug.value);
         try expectEqual(true, config.trigger.value.?);
         try expectEqualSlices(u8, "/dev/tty", config.serial.port.value);
+        try expectEqual(true, config.serial.cmd.called);
+        try expectEqual(false, config.serial.debug.called);
+        try expectEqual(true, config.serial.port.called);
+        try expectEqual(true, config.trigger.called);
     }
     {
         // subcommand with options and args
@@ -571,6 +602,10 @@ test "parseIter" {
         try expectEqual(null, config.serial.debug.value);
         try expectEqual(true, config.trigger.value);
         try expectEqualSlices(u8, "/dev/tty", config.serial.port.value);
+        try expectEqual(true, config.serial.cmd.called);
+        try expectEqual(false, config.serial.debug.called);
+        try expectEqual(true, config.serial.port.called);
+        try expectEqual(true, config.trigger.called);
     }
     {
         // positional arg after subcommand
@@ -584,8 +619,6 @@ test "parseIter" {
 
         const arguments = &.{ "main", "-t", "serial", "/dev/tty" };
 
-        std.debug.print("===============\n", .{});
-
         var iter = IteratorTest{ .args = arguments };
         try parseIter(allocator, &iter, &config);
 
@@ -593,54 +626,10 @@ test "parseIter" {
         try expectEqual(true, config.serial.cmd.called);
         try expectEqual(null, config.serial.debug.value);
         try expectEqualSlices(u8, "/dev/tty", config.port.value);
+        try expectEqual(true, config.serial.cmd.called);
+        try expectEqual(false, config.serial.debug.called);
+        try expectEqual(true, config.port.called);
     }
-}
-
-pub fn parseStruct(cfg: anytype, _: []const u8) void {
-    std.debug.print("type: {any}\n", .{@TypeOf(cfg)});
-    // std.debug.print("type: {any}\n", .{std.meta.fields(@TypeOf(cfg.*))});
-    inline for (std.meta.fields(@TypeOf(cfg.*))) |field| {
-        std.debug.print("field: {}\n", .{field});
-        std.debug.print("field.name: {s}\n", .{field.name});
-        // if (comptime std.mem.eql(u8, field.name, "callback")) {
-        //     @field(config, field.name)();
-        // }
-    }
-}
-
-test "parse_struct" {
-    // std.debug.print("fields: {}\n", .{@typeInfo(config)});
-    // config.help.value;
-
-    // var val: u8 = 4;
-    // _ = &val;
-    // inline for (std.meta.fields(@TypeOf(config))) |field| {
-    // std.debug.print("fields: {}\n", .{field});
-    // std.debug.print("field.name: {s}, field.type: {any}\n", .{ field.name, field.type });
-    // std.debug.print("field.type: {s}, type: \n", .{field.name});
-    // @field(config, field.name) = val;
-    // if (comptime std.mem.eql(u8, field.name, "callback")) {
-    //     @field(config, field.name)();
-    // }
-    // if (comptime std.mem.eql(u8, field.name, "t")) {
-    // std.debug.print("====> {any}\n", .{@field(config, field.name)});
-    // @field(config, field.name) = 2;
-    // std.debug.print("field.name: {s}\n", .{field.name});
-    // std.debug.print("field.name: {s}\n", .{field.name});
-    // }
-    // }
-
-    // var opts = @field(config, "options");
-    // var help = @field(&opts, "help");
-    // _ = &help;
-    // std.debug.print("fields: {}\n", .{help});
-    // std.debug.print("fields: {}\n", .{@typeInfo(&opts)});
-    // std.debug.print("fields: {}\n", .{@typeInfo(&help)});
-
-    // std.debug.print("fields: {}\n", .{@field(config, "options")});
-    // std.debug.print("fields: {}\n", .{std.meta.fields(config)});
-
-    // cmd(&config);
 }
 
 const ArgType = enum {
@@ -660,7 +649,7 @@ const ParsedArgs = struct {
     values: []ParsedArg,
     index: usize = 0,
 
-    pub fn next(self: *ParsedArgs) ?*ParsedArg {
+    pub fn next(self: *ParsedArgs) ?ParsedArg {
         // all values are already read
         if (self.index >= self.values.len) return null;
 
@@ -668,10 +657,10 @@ const ParsedArgs = struct {
         _ = &arg;
 
         self.index += 1;
-        return &arg;
+        return arg;
     }
 
-    pub fn nextFlag(self: *ParsedArgs) ?*ParsedArg {
+    pub fn nextFlag(self: *ParsedArgs) ?ParsedArg {
         while (self.next()) |arg| {
             if (arg.used or arg.Type == .arg) continue;
             return arg;
@@ -680,7 +669,7 @@ const ParsedArgs = struct {
         return null;
     }
 
-    pub fn nextArg(self: *ParsedArgs) ?*ParsedArg {
+    pub fn nextArg(self: *ParsedArgs) ?ParsedArg {
         while (self.next()) |arg| {
             if (!arg.used and arg.Type == .arg) return arg;
         }
@@ -700,6 +689,12 @@ const ParsedArgs = struct {
 
     pub fn deinit(self: *ParsedArgs, allocator: std.mem.Allocator) void {
         allocator.free(self.values);
+    }
+
+    fn print(self: *ParsedArgs) void {
+        for (self.values) |arg| {
+            std.debug.print("arg: {s} {any}\n", .{ arg.value, arg });
+        }
     }
 };
 
