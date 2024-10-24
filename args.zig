@@ -235,17 +235,17 @@ fn applyArg(pa: *ParsedArgs, config: anytype, arg: ParsedArg) !void {
         } else {
             inline for (std.meta.fields(@TypeOf(@field(config, field.name)))) |inner_field| {
                 if (comptime std.mem.startsWith(u8, @typeName(inner_field.type), CmdTypePrefix)) {
-                    pa.values[arg.index].used = true;
-                    const cfg = &(@field(config, field.name));
-                    @field(@field(config, field.name), inner_field.name).called = true;
+                    if (std.mem.eql(u8, @field(@field(config, field.name), inner_field.name).name, arg.value)) {
+                        pa.values[arg.index].used = true;
+                        const cfg = &(@field(config, field.name));
+                        @field(@field(config, field.name), inner_field.name).called = true;
 
-                    try applyConfig(pa, cfg);
+                        try applyConfig(pa, cfg);
 
-                    return;
+                        return;
+                    }
                 }
             }
-            std.debug.print("arg.value: {s}, field.name: {s}\n", .{ arg.value, field.name });
-            unreachable;
         }
     }
 }
@@ -521,9 +521,9 @@ test "parseIter" {
         try expectEqual(true, config.directory.called);
     }
     {
-        // subcommand
+        // subcommand randomly named but cmd got correct name
         var config = struct {
-            serial: struct {
+            serial333: struct {
                 cmd: Cmd() = .{ .name = "serial" },
             } = .{},
         }{};
@@ -533,7 +533,7 @@ test "parseIter" {
         var iter = IteratorTest{ .args = arguments };
         try parseIter(allocator, &iter, &config);
 
-        try expectEqual(true, config.serial.cmd.called);
+        try expectEqual(true, config.serial333.cmd.called);
     }
     {
         // multiple positional arguments
@@ -606,6 +606,31 @@ test "parseIter" {
         try expectEqual(false, config.serial.debug.called);
         try expectEqual(true, config.serial.port.called);
         try expectEqual(true, config.trigger.called);
+    }
+    {
+        // double subcommands
+        var config = struct {
+            serial: struct {
+                cmd: Cmd() = .{ .name = "serial" },
+            } = .{},
+            net: struct {
+                cmd: Cmd() = .{ .name = "net" },
+            } = .{},
+            port: Arg([]const u8) = .{},
+        }{};
+
+        const arguments = &.{ "main", "net", "/dev/tty" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        // try expectEqualSlices(u8, "/home", config.directory.value.?);
+        try expectEqual(false, config.serial.cmd.called);
+        try expectEqual(true, config.net.cmd.called);
+        try expectEqualSlices(u8, "/dev/tty", config.port.value);
+        try expectEqual(false, config.serial.cmd.called);
+        try expectEqual(true, config.net.cmd.called);
+        try expectEqual(true, config.port.called);
     }
     {
         // positional arg after subcommand
