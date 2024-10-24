@@ -571,7 +571,6 @@ test "parseIter" {
         var iter = IteratorTest{ .args = arguments };
         try parseIter(allocator, &iter, &config);
 
-        // try expectEqualSlices(u8, "/home", config.directory.value.?);
         try expectEqual(true, config.serial.cmd.called);
         try expectEqual(null, config.serial.debug.value);
         try expectEqual(true, config.trigger.value.?);
@@ -597,7 +596,6 @@ test "parseIter" {
         var iter = IteratorTest{ .args = arguments };
         try parseIter(allocator, &iter, &config);
 
-        // try expectEqualSlices(u8, "/home", config.directory.value.?);
         try expectEqual(true, config.serial.cmd.called);
         try expectEqual(null, config.serial.debug.value);
         try expectEqual(true, config.trigger.value);
@@ -624,7 +622,6 @@ test "parseIter" {
         var iter = IteratorTest{ .args = arguments };
         try parseIter(allocator, &iter, &config);
 
-        // try expectEqualSlices(u8, "/home", config.directory.value.?);
         try expectEqual(false, config.serial.cmd.called);
         try expectEqual(true, config.net.cmd.called);
         try expectEqualSlices(u8, "/dev/tty", config.port.value);
@@ -647,13 +644,37 @@ test "parseIter" {
         var iter = IteratorTest{ .args = arguments };
         try parseIter(allocator, &iter, &config);
 
-        // try expectEqualSlices(u8, "/home", config.directory.value.?);
         try expectEqual(true, config.serial.cmd.called);
         try expectEqual(null, config.serial.debug.value);
         try expectEqualSlices(u8, "/dev/tty", config.port.value);
         try expectEqual(true, config.serial.cmd.called);
         try expectEqual(false, config.serial.debug.called);
         try expectEqual(true, config.port.called);
+    }
+    {
+        // multiple subcommands
+        var config = struct {
+            serial: struct {
+                cmd: Cmd() = .{ .name = "serial" },
+                listen: struct {
+                    cmd: Cmd() = .{ .name = "listen" },
+                } = .{},
+                generate: struct {
+                    cmd: Cmd() = .{ .name = "listen" },
+                } = .{},
+                port: Arg(?[]const u8) = .{},
+            } = .{},
+        }{};
+
+        const arguments = &.{ "main", "serial", "listen", "/dev/tty" };
+
+        var iter = IteratorTest{ .args = arguments };
+        try parseIter(allocator, &iter, &config);
+
+        try expectEqual(true, config.serial.cmd.called);
+        try expectEqual(true, config.serial.listen.cmd.called);
+        try expectEqual(false, config.serial.generate.cmd.called);
+        try expectEqualSlices(u8, "/dev/tty", config.serial.port.value.?);
     }
 }
 
