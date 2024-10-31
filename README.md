@@ -45,4 +45,5 @@ TODO:
 - add possibility for negative flag values (currently will be parsed as shourt flag)
 - add possible enum inputs
 - add tests for invalid flag (without .short and .long)
+- enum flags
 
